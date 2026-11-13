@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor Mesin Scalping</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mu:#666;--bd:#ddd;--cd:#f6f6f4;--g:#0a7d3c;--r:#c0262d;--w:#a86400}
+@media(prefers-color-scheme:dark){:root{--bg:#161616;--fg:#eee;--mu:#9a9a9a;--bd:#333;--cd:#202020;--g:#4cc58a;--r:#ff6b6b;--w:#e0a43a}}
+*{box-sizing:border-box}body{margin:0;padding:16px;max-width:1100px;margin-inline:auto;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:28px 0 8px}h3{font-size:14px;margin:0 0 6px}.mu{color:var(--mu)}.sm{font-size:12px}
+.card{background:var(--cd);border:1px solid var(--bd);border-radius:8px;padding:12px;margin:8px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}th{font-weight:600;color:var(--mu)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.pos{color:var(--g)}.neg{color:var(--r)}.wn{color:var(--w)}.b{display:inline-block;padding:1px 8px;border:1px solid var(--bd);border-radius:10px;font-size:12px;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:var(--mu)}.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden;margin:2px 0 6px}.bar i{display:block;height:100%}
+button,select{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font:inherit}nav a{margin-right:12px;color:var(--mu)}
+#tip{position:absolute;pointer-events:none;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:12px;display:none}pre{white-space:pre-wrap;font-size:12px;margin:0}
+</style></head><body>
+<div class="row" style="justify-content:space-between"><div><h1 id="ttl">Monitor Mesin Scalping</h1><div class="mu sm" id="meta">memuat…</div></div>
+<div class="row"><select id="tz"><option>WIB</option><option>UTC</option></select></div></div>
+<nav class="sm" style="margin-top:8px"><a href="#ringkas">Ringkasan</a><a href="#kurva">Kurva R</a><a href="#gerbang">Gerbang</a><a href="#aktif">Sinyal aktif</a><a href="#riwayat">Riwayat</a><a href="#sehat">Kesehatan</a><a href="#bt">Backtest</a><a href="#metode">Metode</a></nav>
+<div id="err" class="card neg" style="display:none"></div>
+<h2 id="ringkas">Ringkasan (standar penilaian tunggal)</h2><div class="grid" id="cards"></div>
+<div class="tw card"><table id="cmp"></table></div>
+<h2 id="kurva">Kurva ekuitas (kumulatif R terstandar)</h2><div class="card" style="position:relative"><div id="leg" class="row sm"></div><svg id="eq" viewBox="0 0 800 300" width="100%" style="touch-action:none"></svg><div id="tip"></div></div>
+<h2 id="gerbang">Gerbang validasi sebelum uang sungguhan</h2><div class="grid" id="gates"></div>
+<h2>Rincian per sisi &amp; setup</h2><div class="tw card"><table id="brk"></table></div>
+<h2 id="aktif">Sinyal aktif</h2><div class="tw card"><table id="act"></table></div>
+<h2 id="riwayat">Riwayat sinyal</h2><div class="row"><select id="fe"></select><select id="fs"><option value="">Semua status</option><option value="CLOSED">Selesai</option><option value="ACTIVE">Aktif</option><option value="NOFILL">Tidak terisi</option><option value="CANCEL">Batal</option></select><span class="mu sm" id="hc"></span></div>
+<div class="tw card"><table id="his"></table></div><button id="more">Tampilkan lagi</button>
+<h2 id="sehat">Kesehatan mesin &amp; kualitas data</h2><div class="grid" id="hl"></div>
+<h2 id="bt">Backtest (dari mesin)</h2><div class="grid" id="btc"></div>
+<h2 id="metode">Metode &amp; batasan</h2><div class="card sm" id="mt"></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const J=u=>fetch(u+'?'+Date.now()).then(r=>{if(!r.ok)throw new Error(u+' '+r.status);return r.json()});
+const f2=(x,d=2)=>x==null?'–':Number(x).toFixed(d),sg=x=>x==null?'–':(x>0?'+':'')+Number(x).toFixed(2),cl=x=>x>0?'pos':x<0?'neg':'';
+const R=x=>x==null?'–':`<span class="${cl(x)}">${sg(x)}</span>`,P=x=>x==null?'–':Number(x).toFixed(x<10?3:2);
+const px=v=>v==null?'–':v>=100?v.toFixed(2):v>=1?v.toFixed(4):Number(v.toPrecision(4));
+const ST={ACTIVE:'Aktif',CLOSED:'Selesai',NOFILL:'Tidak terisi',CANCEL:'Batal'},OC={TP:'TP',SL:'SL',PARTIAL:'TP1+BE',TIME:'Waktu habis',HILANG:'Hilang dari sumber'};
+let D,T,tz='WIB',shown=50;
+function tm(ms){if(!ms)return '–';const d=new Date(ms+(tz==='WIB'?252e5:0)),p=n=>String(n).padStart(2,'0');return `${p(d.getUTCDate())}/${p(d.getUTCMonth()+1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`}
+function ago(m){if(m==null)return 'tidak diketahui';if(m<90)return m+' menit lalu';if(m<2880)return Math.round(m/60)+' jam lalu';return Math.round(m/1440)+' hari lalu'}
+const VB={DATA_KURANG:['Data belum cukup','wn'],LOLOS:['Lolos gerbang','pos'],GAGAL:['Tidak lolos','neg']},HS={OK:['Sehat','pos'],STALE:['Terlambat','wn'],ERROR:['Gagal ambil data','neg'],UNKNOWN:['Tidak diketahui','mu']};
+const eng=id=>D.engines.find(e=>e.id===id);
+function cards(){$('#cards').innerHTML=D.engines.map(e=>{const s=e.std,g=e.gates,v=VB[g.verdict],h=HS[e.health.status],n=g.checks[0],d=g.checks[1];
+ return `<div class="card" style="border-top:3px solid ${e.color}"><div class="row" style="justify-content:space-between"><h3>${esc(e.name)} <span class="mu sm">${esc(e.repo)}</span></h3><span class="b ${v[1]}">${v[0]}</span></div>
+ <div class="row sm"><span><i class="dot" style="background:var(--${h[1]==='pos'?'g':h[1]==='neg'?'r':h[1]==='wn'?'w':'mu'})"></i>${h[0]}</span><span class="mu">scan ${ago(e.health.ageMin)}</span></div>
+ <div class="row" style="margin:8px 0;gap:18px"><div><div class="mu sm">R/trade</div><b style="font-size:20px">${R(s.avgR)}</b></div><div><div class="mu sm">Total R</div><b style="font-size:20px">${R(s.totalR)}</b></div><div><div class="mu sm">Win</div><b style="font-size:20px">${s.winRate==null?'–':f2(s.winRate,0)+'%'}</b></div><div><div class="mu sm">PF</div><b style="font-size:20px">${s.pfNoLoss?'∞':f2(s.pf)}</b></div></div>
+ <div class="sm mu">Trade selesai ${n.value}/${n.need}</div><div class="bar"><i style="width:${Math.min(100,n.value/n.need*100)}%;background:${e.color}"></i></div>
+ <div class="sm mu">Hari ${d.value}/${d.need}</div><div class="bar"><i style="width:${Math.min(100,d.value/d.need*100)}%;background:${e.color}"></i></div>
+ ${g.warn?`<div class="sm neg">⚠ ${esc(g.warn)}</div>`:''}</div>`}).join('')}
+function cmp(){const rows=[['Sinyal tercatat',e=>e.counts.signals],['Trade selesai',e=>e.std.n],['Aktif / tidak terisi / batal',e=>`${e.counts.active} / ${e.counts.nofill} / ${e.counts.cancel}`],['Fill rate',e=>e.std.fillRate==null?'–':f2(e.std.fillRate,0)+'%'],
+ ['Win rate',e=>e.std.winRate==null?'–':f2(e.std.winRate,1)+'%'],['R/trade terstandar',e=>R(e.std.avgR)],['CI95 R/trade',e=>e.std.ciLo==null?'–':`${sg(e.std.ciLo)} … ${sg(e.std.ciHi)}`],['R/trade biaya asli mesin',e=>R(e.native.avgR)],
+ ['Total R',e=>R(e.std.totalR)],['Profit factor',e=>e.std.pfNoLoss?'∞':f2(e.std.pf)],['Max drawdown (R)',e=>e.std.maxDD==null?'–':'-'+f2(e.std.maxDD)],['SQN',e=>f2(e.std.sqn)],
+ ['Rata-rata win / loss (R)',e=>`${sg(e.std.avgWin)} / ${sg(e.std.avgLoss)}`],['Loss beruntun maks / kini',e=>e.std.n?`${e.std.maxLossStreak} / ${e.std.curLossStreak}`:'–'],['Median durasi sinyal→hasil',e=>e.std.medDurMin==null?'–':e.std.medDurMin+' mnt'],['Status gerbang',e=>`<span class="${VB[e.gates.verdict][1]}">${VB[e.gates.verdict][0]}</span>`]];
+ $('#cmp').innerHTML=`<tr><th></th>${D.engines.map(e=>`<th class="n" style="color:${e.color}">${esc(e.name)}</th>`).join('')}</tr>`+rows.map(r=>`<tr><td>${r[0]}</td>${D.engines.map(e=>`<td class="n">${r[1](e)}</td>`).join('')}</tr>`).join('')}
+function curve(){const svg=$('#eq'),W=800,H=300,m={l:46,r:12,t:10,b:24},cs=T.filter(t=>t.state==='CLOSED'&&t.tOut&&Number.isFinite(t.rStd)).sort((a,b)=>a.tOut-b.tOut);
+ if(!cs.length){svg.outerHTML='<div class="mu" style="padding:20px">Belum ada trade selesai.</div>';return}
+ const S=D.engines.map(e=>{let c=0;return{e,p:cs.filter(t=>t.e===e.id).map(t=>({t:t.tOut,v:(c+=t.rStd)}))}}),all=S.flatMap(s=>s.p),
+ x0=Math.min(...all.map(p=>p.t)),x1=Math.max(...all.map(p=>p.t),x0+36e5),y0=Math.min(0,...all.map(p=>p.v)),y1=Math.max(0,...all.map(p=>p.v),y0+1),
+ X=t=>m.l+(t-x0)/(x1-x0)*(W-m.l-m.r),Y=v=>H-m.b-(v-y0)/(y1-y0)*(H-m.t-m.b);let h='';
+ for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4;h+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--bd)"/><text x="${m.l-6}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="var(--mu)">${v.toFixed(1)}</text>`}
+ for(let i=0;i<=4;i++){const t=x0+(x1-x0)*i/4;h+=`<text x="${X(t)}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--mu)">${tm(t).slice(0,5)}</text>`}
+ h+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--mu)"/>`;
+ for(const s of S){if(!s.p.length)continue;let d=`M${X(x0)},${Y(0)}`,c=0;for(const p of s.p){d+=`H${X(p.t)}V${Y(p.v)}`;c=p.v}d+=`H${X(x1)}`;h+=`<path d="${d}" fill="none" stroke="${s.e.color}" stroke-width="2"/>`}
+ svg.innerHTML=h+'<rect id="hit" x="0" y="0" width="800" height="300" fill="transparent"/>';
+ $('#leg').innerHTML=S.map(s=>`<span><i class="dot" style="background:${s.e.color}"></i>${esc(s.e.name)} (${s.p.length})</span>`).join('');
+ const tip=$('#tip'),at=(s,t)=>{let v=0;for(const p of s.p){if(p.t<=t)v=p.v;else break}return v},mv=ev=>{const b=svg.getBoundingClientRect(),cx=(ev.touches?ev.touches[0].clientX:ev.clientX),t=x0+((cx-b.left)/b.width*W-m.l)/(W-m.l-m.r)*(x1-x0);
+  tip.style.display='block';tip.style.left=Math.min(cx-b.left+12,b.width-150)+'px';tip.style.top='28px';tip.innerHTML=`<b>${tm(Math.max(x0,Math.min(x1,t)))}</b><br>`+S.map(s=>`<span style="color:${s.e.color}">${esc(s.e.name)}</span> ${sg(at(s,t))}`).join('<br>')};
+ const hit=$('#hit');hit.onmousemove=mv;hit.ontouchmove=mv;hit.onmouseleave=()=>tip.style.display='none'}
+function gt(){$('#gates').innerHTML=D.engines.map(e=>`<div class="card"><h3 style="color:${e.color}">${esc(e.name)} — <span class="${VB[e.gates.verdict][1]}">${VB[e.gates.verdict][0]}</span></h3>`+e.gates.checks.map(c=>`<div class="sm">${c.pass?'<span class="pos">✔</span>':'<span class="mu">○</span>'} ${esc(c.label)} <span class="mu">(kini ${c.value==null?'–':f2(c.value,c.id==='n'?0:2)})</span></div>`).join('')+'</div>').join('')}
+function brk(){let h='<tr><th>Mesin</th><th>Kelompok</th><th class="n">n</th><th class="n">Win</th><th class="n">R/trade</th><th class="n">Total R</th><th class="n">PF</th></tr>';
+ for(const e of D.engines)for(const [t,o] of [['sisi',e.bySide],['setup',e.bySetup]])for(const [k,s] of Object.entries(o))h+=`<tr><td style="color:${e.color}">${esc(e.name)}</td><td>${t}: ${esc(k)}</td><td class="n">${s.n}</td><td class="n">${s.winRate==null?'–':f2(s.winRate,0)+'%'}</td><td class="n">${R(s.avgR)}</td><td class="n">${R(s.totalR)}</td><td class="n">${s.pfNoLoss?'∞':f2(s.pf)}</td></tr>`;
+ $('#brk').innerHTML=h}
+const row=t=>{const e=eng(t.e);return `<tr><td style="color:${e.color}">${esc(e.name)}</td><td>${esc(t.sym.replace('USDT',''))}</td><td class="${t.side==='LONG'?'pos':'neg'}">${t.side}</td><td>${esc(t.setup)}</td><td class="n">${px(t.entry)}</td><td class="n">${px(t.sl)}</td><td class="n">${px(t.tp)}</td><td>${tm(t.tSig)}</td><td>${t.state==='ACTIVE'?'–':tm(t.tOut)}</td><td>${ST[t.state]||t.state}${t.outcome?' · '+(OC[t.outcome]||t.outcome):''}</td><td class="n">${R(t.rStd)}</td></tr>`};
+const HEAD='<tr><th>Mesin</th><th>Koin</th><th>Arah</th><th>Setup</th><th class="n">Entry</th><th class="n">SL</th><th class="n">TP</th><th>Analisis</th><th>Hasil</th><th>Status</th><th class="n">R std</th></tr>';
+function act(){const a=T.filter(t=>t.state==='ACTIVE');$('#act').innerHTML=a.length?HEAD+a.map(row).join(''):'<tr><td class="mu">Tidak ada sinyal aktif.</td></tr>'}
+function his(){const e=$('#fe').value,s=$('#fs').value,a=T.filter(t=>(!e||t.e===e)&&(!s||t.state===s));$('#hc').textContent=`${a.length} sinyal · waktu ${tz}`;$('#his').innerHTML=HEAD+a.slice(0,shown).map(row).join('');$('#more').style.display=a.length>shown?'':'none'}
+function hl(){$('#hl').innerHTML=D.engines.map(e=>{const h=e.health,q=e.quality,s=HS[h.status];return `<div class="card"><h3 style="color:${e.color}">${esc(e.name)} — <span class="${s[1]}">${s[0]}</span></h3><div class="sm">Scan terakhir: ${ago(h.ageMin)}${h.lastCommitAt?` · commit ${tm(h.lastCommitAt)}`:''}</div>`+
+ h.notes.map(n=>`<div class="sm mu">${esc(n)}</div>`).join('')+`<div class="sm" style="margin-top:6px">Baris jurnal: ${q.rows} · ID ganda: ${q.dupIds} · baris tak valid: ${q.invalid} · hanya di arsip: ${q.archiveOnly}${q.lost?` (${q.lost} hilang)`:''} · sebelum tanggal mulai: ${e.counts.beforeStart}</div>`+
+ (q.invalidEx.length?`<div class="sm neg">${q.invalidEx.map(esc).join('; ')}</div>`:'')+(q.mode&&q.mode!=='live'?`<div class="sm neg">Mode jurnal: ${esc(q.mode)} (bukan live)</div>`:'')+(q.fetchError?`<div class="sm neg">Gagal ambil jurnal: ${esc(q.fetchError)} (memakai arsip)</div>`:'')+'</div>'}).join('')}
+function bt(){$('#btc').innerHTML=D.engines.map(e=>{const b=e.backtest;let c='<span class="mu sm">Belum ada hasil backtest.</span>';if(b?.kind==='md')c=`<pre>${esc(b.text)}</pre>`;
+ if(b?.kind==='json'){const o=b.overall||{};c=`<div class="sm">${b.days||'?'} hari · sinyal ${b.signals??'–'} · n ${o.n??0} · win ${o.win_rate??'–'}% · exp ${R(o.expectancy_r)} R · PF ${o.profit_factor??'–'} · maxDD ${o.max_dd_r??'–'}R</div>`+(b.folds||[]).map(f=>`<div class="sm mu">${esc(f.from)}…${esc(f.to)}: n ${f.n||0}, exp ${f.expectancy_r??'–'}</div>`).join('')+(b.notes||[]).map(n=>`<div class="sm wn">${esc(n)}</div>`).join('')}
+ return `<div class="card"><h3 style="color:${e.color}">${esc(e.name)}</h3>${c}</div>`}).join('')}
+function mt(){$('#mt').innerHTML=`<p><b>Satu standar.</b> Trade dihitung hanya bila order terisi dan hasil final (TP, SL, TP1+BE, atau waktu habis). Tidak terisi/batal tidak dihitung sebagai trade, tetapi tampil sebagai fill rate. R terstandar = R kotor − ${D.unifiedCostPct}% ÷ jarak SL%, sama untuk ketiga mesin. Kolom “biaya asli mesin” memakai biaya yang dipakai tiap mesin sendiri.</p>
+<p><b>Perbedaan mesin yang tetap ada:</b> SC memakai satu TP (1,8R) dan menilai pada candle 5 mnt; Scalp memakai TP1 60% lalu BE/TP2 dan menilai pada candle 1 jam (lebih kasar); SCv2 memakai TP1 60% lalu BE/TP2 dengan candle 5 mnt; SCv3 masuk di close candle 15 mnt (tanpa order limit, jadi tidak ada “tidak terisi”), TP1 50% lalu BE/TP2; SCv4 masuk di harga level saat sinyal terbit (tanpa cek order terisi), TP1 parsial lalu BE/TP2, dinilai pada candle 5 mnt dengan batas waktu 6 jam. Distribusi R mereka tidak identik, jadi bandingkan dengan hati-hati.</p>
+<p><b>Statistik:</b> CI95 memakai distribusi-t atas R per trade (anggap trade independen; sinyal pada koin berkorelasi dengan BTC sehingga CI cenderung terlalu optimis). SQN = √min(n,100) × rata-rata ÷ simpangan baku. Gerbang validasi: ${D.gates.minTrades} trade, ${D.gates.minDays} hari, batas bawah CI95 &gt; 0, PF ≥ ${D.gates.minPF}, SQN ≥ ${D.gates.minSQN}. Lolos gerbang bukan jaminan profit.</p>
+<p><b>Arsip:</b> setiap jurnal digabung ke arsip di repo monitor sehingga baris yang terpotong di repo mesin tidak hilang. Bukan saran finansial; semua hasil adalah simulasi.</p>`}
+async function init(){try{[D,T]=await Promise.all([J('data/summary.json'),J('data/trades.json')])}catch(e){$('#err').style.display='';$('#err').textContent='Gagal memuat data: '+e.message;return}
+ $('#ttl').textContent=D.title;$('#meta').textContent=`Diperbarui ${new Date(D.generatedAt).toLocaleString('id-ID')} · biaya standar ${D.unifiedCostPct}% per trade`;
+ $('#fe').innerHTML='<option value="">Semua mesin</option>'+D.engines.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+ try{tz=localStorage.getItem('tz')||'WIB'}catch(e){}$('#tz').value=tz;
+ const all=()=>{cards();cmp();curve();gt();brk();act();his();hl();bt();mt()};all();
+ $('#tz').onchange=e=>{tz=e.target.value;try{localStorage.setItem('tz',tz)}catch(x){}all()};$('#fe').onchange=$('#fs').onchange=()=>{shown=50;his()};$('#more').onclick=()=>{shown+=50;his()}}
+init();
+</script></body></html>

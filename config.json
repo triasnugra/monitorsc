@@ -1,0 +1,89 @@
+{
+  "title": "Monitor Mesin Scalping",
+  "unifiedCostPct": 0.2,
+  "gates": {
+    "minTrades": 200,
+    "minDays": 56,
+    "minPF": 1.2,
+    "minSQN": 2
+  },
+  "engines": [
+    {
+      "id": "sc",
+      "name": "SC",
+      "repo": "triasnugra/sc",
+      "branch": "main",
+      "kind": "sc",
+      "color": "#2a7de1",
+      "journal": "data/journal.json",
+      "report": "data/report.md",
+      "backtest": "data/backtest.md",
+      "engineConfig": "config.json",
+      "costPct": 0.2,
+      "start": "",
+      "staleAfterMin": 60
+    },
+    {
+      "id": "scalp",
+      "name": "Scalp",
+      "repo": "triasnugra/scalp",
+      "branch": "main",
+      "kind": "scalp",
+      "color": "#e08a00",
+      "journal": "data/journal.json",
+      "report": "data/report.json",
+      "backtest": "",
+      "costPct": 0.1,
+      "start": "",
+      "staleAfterMin": 180
+    },
+    {
+      "id": "scv2",
+      "name": "SCv2",
+      "repo": "triasnugra/scv2",
+      "branch": "data",
+      "kind": "scv2",
+      "color": "#8a4fd6",
+      "journal": "journal.json",
+      "report": "",
+      "backtest": "",
+      "backtestBranch": "backtest",
+      "backtestJson": "backtest.json",
+      "pagesLatest": "https://triasnugra.github.io/scv2/data/latest.json",
+      "costPct": 0.15,
+      "start": "",
+      "staleAfterMin": 60
+    },
+    {
+      "id": "scv3",
+      "name": "SCv3",
+      "repo": "triasnugra/scv3",
+      "branch": "main",
+      "kind": "scv3",
+      "color": "#12a594",
+      "journal": "state/signals.json",
+      "journalKey": "signals",
+      "report": "state/meta.json",
+      "backtest": "",
+      "backtestJson": "state/backtest.json",
+      "costPct": 0.16,
+      "start": "",
+      "staleAfterMin": 60
+    },
+    {
+      "id": "scv4",
+      "name": "SCv4",
+      "repo": "triasnugra/scv4",
+      "branch": "main",
+      "kind": "scv4",
+      "color": "#d6336c",
+      "journal": "https://triasnugra.github.io/scv4/history.json",
+      "journalKey": "signals",
+      "report": "https://triasnugra.github.io/scv4/data.json",
+      "backtest": "",
+      "costPct": 0.16,
+      "start": "",
+      "staleAfterMin": 90
+    }
+  ]
+}
