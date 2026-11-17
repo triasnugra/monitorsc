@@ -84,6 +84,22 @@
       "costPct": 0.16,
       "start": "",
       "staleAfterMin": 90
+    },
+    {
+      "id": "scv5",
+      "name": "SCv5",
+      "repo": "triasnugra/scv5",
+      "branch": "main",
+      "kind": "scv5",
+      "color": "#74b816",
+      "journal": "data/journal.jsonl",
+      "journalFormat": "jsonl-chain",
+      "epochMode": "latest",
+      "report": "https://triasnugra.github.io/scv5/data/state.json",
+      "backtest": "",
+      "costPct": 0.1,
+      "start": "",
+      "staleAfterMin": 90
     }
   ]
 }

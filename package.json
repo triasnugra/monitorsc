@@ -1,1 +1,1 @@
-{"name":"monitorsc","version":"1.0.0","type":"module","scripts":{"test":"node scripts/selftest.mjs","build":"node scripts/build.mjs"}}
+{"name":"monitorsc","version":"1.1.0","type":"module","scripts":{"test":"node scripts/selftest.mjs","build":"node scripts/build.mjs"}}
