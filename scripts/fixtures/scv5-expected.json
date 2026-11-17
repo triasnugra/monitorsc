@@ -1,0 +1,74 @@
+{
+ "BTC-D": {
+  "close_ts": 1794947288269,
+  "fill_ts": 1794860948269,
+  "r_gross": 0.25,
+  "r_net": 0.15,
+  "reason": "TIMEOUT",
+  "status": "CLOSED",
+  "tp1_ts": null
+ },
+ "ETH-B": {
+  "close_ts": 1794853868269,
+  "fill_ts": 1794853748269,
+  "r_gross": 2.1488,
+  "r_net": 2.0783,
+  "reason": "TP2",
+  "status": "CLOSED",
+  "tp1_ts": 1794853778269
+ },
+ "HBAR-G": {
+  "close_ts": null,
+  "fill_ts": null,
+  "r_gross": null,
+  "r_net": null,
+  "reason": null,
+  "status": "PENDING",
+  "tp1_ts": null
+ },
+ "INJ-E": {
+  "close_ts": 1794875488269,
+  "fill_ts": null,
+  "r_gross": null,
+  "r_net": null,
+  "reason": "NOT_FILLED",
+  "status": "EXPIRED",
+  "tp1_ts": null
+ },
+ "LTC-F": {
+  "close_ts": 1794868688269,
+  "fill_ts": null,
+  "r_gross": null,
+  "r_net": null,
+  "reason": "TARGET_FIRST",
+  "status": "EXPIRED",
+  "tp1_ts": null
+ },
+ "PEPE-A": {
+  "close_ts": 1794850208269,
+  "fill_ts": 1794850148269,
+  "r_gross": -1.0,
+  "r_net": -1.0335,
+  "reason": "SL",
+  "status": "CLOSED",
+  "tp1_ts": null
+ },
+ "SOL-C": {
+  "close_ts": 1794857488269,
+  "fill_ts": 1794857348269,
+  "r_gross": 0.9,
+  "r_net": 0.8,
+  "reason": "BE",
+  "status": "CLOSED",
+  "tp1_ts": 1794857378269
+ },
+ "TRB-H": {
+  "close_ts": 1794884288269,
+  "fill_ts": 1794875348269,
+  "r_gross": 0.0,
+  "r_net": 0.0,
+  "reason": "DATA_GAP",
+  "status": "CLOSED",
+  "tp1_ts": null
+ }
+}
