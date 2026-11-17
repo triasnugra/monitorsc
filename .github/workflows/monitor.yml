@@ -13,6 +13,7 @@ concurrency: { group: monitor, cancel-in-progress: false }
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,9 +26,17 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Simpan arsip jurnal
         run: |
+          set -e
           git config user.name "monitor-bot"; git config user.email "monitor-bot@users.noreply.github.com"
           git add data/archive
-          git diff --cached --quiet || (git commit -m "arsip $(date -u +%FT%TZ)" && git pull --rebase -q && git push)
+          if git diff --cached --quiet; then echo "arsip tidak berubah"; exit 0; fi
+          git commit -m "arsip $(date -u +%FT%TZ)"
+          ok=0
+          for i in 1 2 3; do                      # dicoba 3x: push bisa bentrok dengan commit lain
+            if git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push -q origin "HEAD:${GITHUB_REF_NAME}"; then ok=1; break; fi
+            echo "push gagal (percobaan $i)"; git rebase --abort 2>/dev/null || true; sleep $((i * 5))
+          done
+          if [ "$ok" != "1" ]; then echo "::error::Gagal menyimpan arsip setelah 3 percobaan"; exit 1; fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: site }
