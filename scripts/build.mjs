@@ -1,7 +1,8 @@
-// Ambil jurnal 3 mesin -> normalisasi -> gabung ke arsip -> hitung statistik -> tulis site/.
+// Ambil jurnal 6 mesin -> normalisasi -> gabung ke arsip -> hitung statistik -> tulis site/.
 // LOCAL_DIR=<dir> membaca <dir>/<id>/<path> (uji offline). SOURCE_TOKEN dipakai bila repo mesin privat.
 import fs from 'node:fs';
 import { normalize, summarize, gates } from './lib.mjs';
+import { loadChain, pickEpoch } from './scv5.mjs';
 
 const cfg = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const TOKEN = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN || '', PRIV = !!process.env.SOURCE_TOKEN, LOCAL = process.env.LOCAL_DIR;
@@ -32,13 +33,18 @@ async function lastCommit(e) {
   catch { return null; }
 }
 
+async function scv5State(e) {                                  // state.json yang dipublish scv5 tiap scan; { state } | { error } | {}
+  try { const t = await src(e, e.report); return t ? { state: JSON.parse(t) } : { error: 'state.json belum terbit di GitHub Pages scv5' }; }
+  catch (x) { return { error: x.message }; }
+}
+
 fs.mkdirSync('data/archive', { recursive: true });
 const archFile = id => `data/archive/${id}.json`;
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 const FINAL = new Set(['CLOSED', 'NOFILL', 'CANCEL']);
 
-async function health(e, jr) {                                // tanda kehidupan mesin + ringkasan laporan terakhir
-  const h = { notes: [], lastScanAt: null, lastCommitAt: e.kind === 'scv4' ? null : await lastCommit(e) };   // scv4 tidak commit per scan
+async function health(e, jr, pre) {                                // tanda kehidupan mesin + ringkasan laporan terakhir
+  const h = { notes: [], lastScanAt: null, lastCommitAt: (e.kind === 'scv4' || e.kind === 'scv5') ? null : await lastCommit(e) };   // scv4/scv5 tidak commit per scan (scv5 hanya bila jurnal berubah)
   try {
     if (e.kind === 'sc') {
       const t = await src(e, e.report) || '';
@@ -54,6 +60,18 @@ async function health(e, jr) {                                // tanda kehidupan
       if (r) { h.lastScanAt = Date.parse(r.generated_at) || null; h.mode = r.mode; const c = {}; (r.results || []).forEach(x => c[x.decision] = (c[x.decision] || 0) + 1);
         h.notes = [`Mode ${r.mode}; provider ${(r.providers || []).join(', ') || '-'}; keputusan: ${Object.entries(c).map(([k, v]) => k + ' ' + v).join(', ') || '-'}`];
         const ne = Object.keys(r.errors || {}).length; if (ne) h.notes.push(`Error data: ${ne} simbol`); }
+    } else if (e.kind === 'scv5') {
+      const r = pre?.state;
+      if (r) {
+        h.lastScanAt = r.generated_ts || Date.parse(r.generated_at) || null;
+        const p = r.stats?.protocol, rs = r.risk?.state, lim = r.risk?.limits, srcs = [...new Set(Object.values(r.data_sources || {}))];
+        h.notes.push(`Strategi v${r.strategy?.version ?? '?'} · hash ${String(r.strategy?.hash ?? '').slice(0, 8)} · protokol ${p?.verdict ?? '-'}${p ? ` (${p.trades}/${p.min_trades} trade, ${p.weeks} dari ${p.min_weeks} minggu)` : ''}`);
+        h.notes.push(`Data: ${Object.keys(r.data_sources || {}).length} simbol dari ${srcs.join(', ') || '-'}; AI Claude ${r.ai?.enabled ? 'aktif (' + r.ai.model + ')' : 'nonaktif'}`);
+        if (rs) h.notes.push(`Risiko: R hari ini ${rs.r_today}, loss beruntun ${rs.loss_streak}, DD ${rs.drawdown_r_window}R${lim?.dd_window_days ? '/' + lim.dd_window_days + ' hari' : ''}, sinyal hari ini ${rs.signals_today}`);
+        if (r.risk?.halted?.length) h.notes.push('Sinyal baru ditahan: ' + r.risk.halted.join(', '));
+        if (r.integrity && r.integrity.ok === false) h.notes.push('Integritas menurut mesin GAGAL: ' + r.integrity.message);
+        if ((r.errors || []).length) h.notes.push(`Error data: ${r.errors.length}`);
+      } else if (pre?.error) h.notes.push('Gagal baca laporan: ' + pre.error);
     } else if (e.kind === 'scv3') {
       const r = JSON.parse(await src(e, e.report) || 'null');
       if (r) { h.lastScanAt = Date.parse(r.updated) || null; h.notes = [`Mode ${r.mode}; candle ${r.ltf}/${r.htf}; skor minimum ${r.min_score}`]; }
@@ -65,7 +83,7 @@ async function health(e, jr) {                                // tanda kehidupan
   } catch (x) { h.notes.push('Gagal baca laporan: ' + x.message); }
   const at = h.lastScanAt || h.lastCommitAt;
   h.ageMin = at ? Math.round((now - at) / 6e4) : null;
-  h.status = jr.fetchError ? 'ERROR' : h.ageMin == null ? 'UNKNOWN' : h.ageMin <= e.staleAfterMin ? 'OK' : 'STALE';
+  h.status = jr.fetchError ? 'ERROR' : (jr.chain && !jr.chain.ok) ? 'TAMPERED' : h.ageMin == null ? 'UNKNOWN' : h.ageMin <= e.staleAfterMin ? 'OK' : 'STALE';
   return h;
 }
 async function backtest(e) {
@@ -84,8 +102,12 @@ for (const e of cfg.engines) {
   if (e.engineConfig && !LOCAL) { try { const c = JSON.parse(await src(e, e.engineConfig) || 'null'); if (c?.costPct > 0) ctx.costPct = c.costPct; } catch {} }
   const arch = new Map(readJson(archFile(e.id), []).map(t => [t.id, t])), seen = new Set(), fresh = new Map();
   try {
-    const doc = JSON.parse(await src(e, e.journal) ?? 'null'), raw = e.journalKey ? doc?.[e.journalKey] : doc;
-    jr.mode = doc?.mode ?? null;
+    const txt = await src(e, e.journal);
+    let raw;
+    if (e.journalFormat === 'jsonl-chain') {                   // scv5: rantai event berhash; diverifikasi ulang + replay
+      if (txt == null) throw new Error('jurnal tidak ditemukan / bukan array');
+      const c = loadChain(txt); raw = c.rows; jr.chain = c.chain;
+    } else { const doc = JSON.parse(txt ?? 'null'); raw = e.journalKey ? doc?.[e.journalKey] : doc; jr.mode = doc?.mode ?? null; }
     if (!Array.isArray(raw)) throw new Error('jurnal tidak ditemukan / bukan array');
     jr.rows = raw.length;
     for (const row of raw) {
@@ -94,22 +116,29 @@ for (const e of cfg.engines) {
       if (seen.has(t.id)) jr.dupIds++; seen.add(t.id); fresh.set(t.id, t);
     }
   } catch (x) { jr.fetchError = x.message; }
+  const trust = !(jr.chain && !jr.chain.ok);                   // rantai hash rusak: jangan timpa arsip (data terakhir yang valid) dengan jurnal yang mungkin diubah
   let regress = 0;
-  for (const [id, t] of fresh) { const o = arch.get(id); if (o && FINAL.has(o.state) && !FINAL.has(t.state)) { regress++; continue; } arch.set(id, t); }
+  for (const [id, t] of trust ? fresh : []) { const o = arch.get(id); if (o && FINAL.has(o.state) && !FINAL.has(t.state)) { regress++; continue; } arch.set(id, t); }
   let lost = 0;
-  if (!jr.fetchError) for (const t of arch.values()) if (t.state === 'ACTIVE' && !seen.has(t.id) && now - t.tSig > 72 * 36e5) { t.state = 'CANCEL'; t.outcome = 'HILANG'; lost++; }   // aktif tapi hilang dari sumber >72 jam
+  if (!jr.fetchError && trust) for (const t of arch.values()) if (t.state === 'ACTIVE' && !seen.has(t.id) && now - t.tSig > 72 * 36e5) { t.state = 'CANCEL'; t.outcome = 'HILANG'; lost++; }   // aktif tapi hilang dari sumber >72 jam
   const all = [...arch.values()].sort((a, b) => a.tSig - b.tSig);
   fs.writeFileSync(archFile(e.id), '[\n' + all.map(t => JSON.stringify(t)).join(',\n') + '\n]\n');
-  const start = e.start ? Date.parse(e.start) : 0, win = all.filter(t => t.tSig >= start);
+  const pre = e.kind === 'scv5' ? await scv5State(e) : null;
+  const epoch = e.epochMode === 'latest' ? pickEpoch(all, pre?.state?.strategy?.hash) : null;   // hanya hash strategi terkini dihitung
+  const inEp = epoch ? all.filter(t => t.epoch === epoch) : all;
+  const start = e.start ? Date.parse(e.start) : 0, win = inEp.filter(t => t.tSig >= start);
   const st = summarize(win, 'rStd'), nat = summarize(win, 'rNative');
   const span = win.length ? (now - win[0].tSig) / 864e5 : 0, g = gates(st, span, cfg.gates);
+  if (jr.chain && !jr.chain.ok) { g.warn = `Integritas jurnal GAGAL: ${jr.chain.msg}`; if (g.verdict === 'LOLOS') g.verdict = 'GAGAL'; }   // jurnal yang diubah tidak boleh meloloskan gerbang
   const by = f => Object.fromEntries([...new Set(win.map(f))].sort().map(k => [k, summarize(win.filter(t => f(t) === k), 'rStd')]));
-  const hl = await health(e, jr);
+  const hl = await health(e, jr, pre);
   engines.push({ id: e.id, name: e.name, repo: e.repo, color: e.color, start: e.start || null, costNative: ctx.costPct,
     counts: { signals: win.length, closed: st.n, active: win.filter(t => t.state === 'ACTIVE').length, nofill: win.filter(t => t.state === 'NOFILL').length,
-      cancel: win.filter(t => t.state === 'CANCEL').length, beforeStart: all.length - win.length },
+      cancel: win.filter(t => t.state === 'CANCEL').length, beforeStart: inEp.length - win.length, otherEpoch: all.length - inEp.length },
     std: st, native: { n: nat.n, avgR: nat.avgR, totalR: nat.totalR, pf: nat.pf }, gates: g, bySide: by(t => t.side), bySetup: by(t => t.setup),
-    quality: { mode: jr.mode ?? hl.mode ?? null, rows: jr.rows, dupIds: jr.dupIds, invalid: jr.invalid, invalidEx: jr.invalidEx, archiveOnly: [...arch.keys()].filter(k => !seen.has(k)).length, lost, regress, fetchError: jr.fetchError },
+    byAi: win.some(t => t.ai && t.ai !== 'N/A') ? by(t => t.ai || '-') : {},   // nilai tambah review Claude (TAKE/WAIT/SKIP) diukur, bukan diasumsikan
+    quality: { mode: jr.mode ?? hl.mode ?? null, rows: jr.rows, dupIds: jr.dupIds, invalid: jr.invalid, invalidEx: jr.invalidEx, archiveOnly: [...arch.keys()].filter(k => !seen.has(k)).length, lost, regress, fetchError: jr.fetchError,
+      chain: jr.chain ?? null, epoch: epoch ? epoch.slice(0, 8) : null },
     health: hl, backtest: await backtest(e) });
   allTrades.push(...win);
 }

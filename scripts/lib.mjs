@@ -1,4 +1,4 @@
-// Normalisasi jurnal 3 mesin ke satu skema + statistik dengan satu standar penilaian.
+// Normalisasi jurnal 6 mesin ke satu skema + statistik dengan satu standar penilaian.
 const num = v => (typeof v === 'number' && Number.isFinite(v)) ? v : (typeof v === 'string' && v.trim() !== '' && Number.isFinite(+v)) ? +v : null;
 const key = s => String(s ?? '').toLowerCase().replace(/[\s_-]+/g, '');
 const usdt = s => { s = String(s).toUpperCase(); return s.endsWith('USDT') ? s : s + 'USDT'; };
@@ -12,7 +12,8 @@ function finish(e, o, ctx) {
   for (const k of ['entry', 'sl', 'tSig']) if (num(o[k]) == null) return { err: 'kolom ' + k + ' kosong' };
   const t = { e, id: o.id || `${o.sym}|${side}|${o.tSig}`, sym: o.sym, side, setup: o.setup || '-', grade: o.grade ?? null, score: o.score ?? null,
     entry: o.entry, sl: o.sl, tp: o.tp ?? null, tp2: o.tp2 ?? null, stopPct: r4(o.stopPct), tSig: o.tSig, tOut: o.tOut ?? null,
-    state: o.state, outcome: o.outcome ?? null, rGross: null, rNative: null, rStd: null };
+    state: o.state, outcome: o.outcome ?? null, rGross: null, rNative: null, rStd: null,
+    ...(o.epoch ? { epoch: o.epoch } : {}), ...(o.ai ? { ai: o.ai } : {}) };
   if (o.state === 'CLOSED') {
     if (o.rGross == null || !(o.stopPct > 0)) return { err: 'trade selesai tanpa R / jarak SL' };
     t.rGross = r4(o.rGross); t.rNative = r4(o.rNative ?? (o.rGross - ctx.costPct / o.stopPct)); t.rStd = r4(o.rGross - ctx.unifiedCostPct / o.stopPct);
@@ -63,6 +64,19 @@ export function normalize(kind, row, ctx) {
     return finish('scv4', { id: row.id, sym: usdt(row.symbol), side: row.direction, setup: row.trigger, score: num(row.score), entry, sl, tp: num(row.tp1), tp2: num(row.tp2),
       tSig: tms(row.time), tOut: tms(row.closed_at), state: m[0], outcome: m[1], stopPct: sp, rNative: r,
       rGross: (m[0] === 'CLOSED' && r != null && sp > 0) ? r + ctx.costPct / sp : null }, ctx);   // r sumber sudah dikurangi biaya round-trip
+  }
+  if (kind === 'scv5') {   // row = state sinyal hasil replay jurnal berantai-hash (lihat scv5.mjs)
+    const st = row.status, rs = String(row.reason ?? '');
+    let m;
+    if (st === 'PENDING' || st === 'OPEN' || st === 'OPEN_TP1') m = ['ACTIVE'];
+    else if (st === 'CLOSED') { const oc = { SL: 'SL', TP2: 'TP', BE: 'PARTIAL', TIMEOUT: 'TIME' }[rs]; m = rs === 'DATA_GAP' ? ['CANCEL', 'DATA_GAP'] : oc ? ['CLOSED', oc] : null; }
+    else if (st === 'EXPIRED') m = rs === 'DATA_GAP' ? ['CANCEL', 'DATA_GAP'] : (rs === 'NOT_FILLED' || rs === 'TARGET_FIRST') ? ['NOFILL'] : null;   // TARGET_FIRST: harga ke TP1 sebelum limit terisi
+    if (!m) return { err: `status/alasan tidak dikenal: ${st}/${row.reason}` };
+    const entry = num(row.entry), sl = num(row.stop), sp = Math.abs(entry - sl) / entry * 100;
+    // r_gross/r_net dari jurnal; r_net = r_gross - cost_r (biaya per sinyal). Bila profil memakai stop_slip_pct > 0, slippage sudah ada di r_gross.
+    return finish('scv5', { id: row.id, sym: usdt(row.symbol), side: row.direction, setup: row.setup, score: num(row.score), entry, sl, tp: num(row.tp1), tp2: num(row.tp2),
+      tSig: num(row.created_ts), tOut: num(row.close_ts), state: m[0], outcome: m[1], stopPct: sp, rGross: num(row.r_gross), rNative: num(row.r_net),
+      epoch: row.strategy_hash || null, ai: row.ai?.verdict || null }, ctx);
   }
   return { err: 'jenis mesin tidak dikenal: ' + kind };
 }

@@ -1,5 +1,7 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { normalize, summarize, gates, tCrit } from './lib.mjs';
+import { loadChain, parseRaw, plain, canon, pickEpoch, replay } from './scv5.mjs';
 const ok = (a, b, m) => assert.ok(Math.abs(a - b) < 1e-3, `${m}: ${a} != ${b}`);
 const ctx = (c) => ({ costPct: c, unifiedCostPct: 0.2 });
 
@@ -40,4 +42,63 @@ ok(tCrit(10), 2.228, 't10'); ok(tCrit(100), 1.984, 't100');
 assert.equal(gates(s, 5, { minTrades: 200, minDays: 56, minPF: 1.2, minSQN: 2 }).verdict, 'DATA_KURANG');
 const big = Array.from({ length: 300 }, (_, i) => ({ state: 'CLOSED', rStd: i % 2 ? 2 : -1, tSig: i, tOut: i + 1 }));
 assert.equal(gates(summarize(big), 90, { minTrades: 200, minDays: 56, minPF: 1.2, minSQN: 2 }).verdict, 'LOLOS');
+
+// ---------- scv5: jurnal berantai-hash ----------
+const fx = n => fs.readFileSync(new URL('./fixtures/' + n, import.meta.url), 'utf8');
+// canon harus identik dengan scalp.config.canon (nilai patokan dari Python): float 1.0 / 1e-06 / -0.0 dipertahankan apa adanya
+assert.equal(canon(parseRaw('{"b": 1.0, "a": [1e-06, "\\u00e9\\n", "\\"q\\"\\\\"], "c": null, "d": true, "e": -0.0}')), '{"a":[1e-06,"é\\n","\\"q\\"\\\\"],"b":1.0,"c":null,"d":true,"e":-0.0}', 'canon vs Python');
+assert.ok(Number.isNaN(plain(parseRaw('{"x": NaN}')).x) && plain(parseRaw('[Infinity, -Infinity]'))[1] === -Infinity, 'NaN/Infinity ala Python');
+assert.throws(() => parseRaw('{"a": 1} x'), /sisa teks/); assert.throws(() => parseRaw('{"a" 1}'), /butuh/);
+
+// fixture dibuat oleh Journal ASLI scv5 (Python): ada float 4.123e-06, -1.0, unicode, escape, DATA_GAP
+const J = loadChain(fx('scv5-journal.jsonl'));
+assert.equal(J.chain.ok, true, J.chain.msg); assert.equal(J.chain.records, 23);
+const EXP = JSON.parse(fx('scv5-expected.json'));            // hasil replay() Python pada fixture yang sama
+assert.equal(J.rows.length, Object.keys(EXP).length);
+for (const r of J.rows) for (const k of ['status', 'reason', 'r_gross', 'r_net', 'close_ts', 'fill_ts', 'tp1_ts']) assert.deepEqual(r[k], EXP[r.id][k], `replay ${r.id}.${k}`);
+assert.equal(J.rows.some(r => r.id === 'TIDAK-ADA'), false, 'event untuk id asing diabaikan');
+// jurnal asli produksi scv5 (2 catatan: SIGNAL lalu EXPIRE)
+const REAL = loadChain(fx('scv5-real.jsonl')); assert.equal(REAL.chain.ok, true); assert.equal(REAL.rows[0].status, 'EXPIRED');
+assert.equal(normalize('scv5', REAL.rows[0], ctx(0.1)).t.state, 'NOFILL');
+// sabotase harus terdeteksi
+const L = fx('scv5-journal.jsonl').trim().split('\n'), bad = ls => loadChain(ls.join('\n')).chain;
+assert.match(bad(L.map((l, i) => i === 0 ? l.replace('"entry": 4.123e-06', '"entry": 4.2e-06') : l)).msg, /hash tidak valid di seq 0/);
+assert.match(bad(L.filter((_, i) => i !== 3)).msg, /rantai putus di seq 3/);
+assert.match(bad([L[1], L[0], ...L.slice(2)]).msg, /rantai putus di seq 0/);
+assert.match(bad(L.map((l, i) => i === 22 ? l.replace('"ts": 1794', '"ts": 1795') : l)).msg, /seq 22/);
+assert.equal(bad([...L.slice(0, 5), '{"data": {', ...L.slice(5)]).ok, false);
+assert.equal(bad([]).ok, true);
+
+// status antara (belum final) harus benar: SIGNAL -> PENDING, +FILL -> OPEN, +TP1 -> OPEN_TP1 (tetap aktif sampai CLOSE)
+const mid = (...ev) => replay(ev.map(([type, data]) => ({ type, data }))).get('Z');
+const sg0 = { id: 'Z', symbol: 'X', direction: 'LONG', entry: 10, stop: 9.9, created_ts: 5 };
+assert.equal(mid(['SIGNAL', sg0]).status, 'PENDING');
+assert.equal(mid(['SIGNAL', sg0], ['FILL', { id: 'Z', ts: 6 }]).status, 'OPEN'); assert.equal(mid(['SIGNAL', sg0], ['FILL', { id: 'Z', ts: 6 }]).fill_ts, 6);
+const m1 = mid(['SIGNAL', sg0], ['FILL', { id: 'Z', ts: 6 }], ['TP1', { id: 'Z', ts: 7 }]);
+assert.equal(m1.status, 'OPEN_TP1'); assert.equal(m1.tp1_ts, 7); assert.equal(normalize('scv5', m1, ctx(0.1)).t.state, 'ACTIVE');
+
+// normalisasi seluruh fixture
+const N = Object.fromEntries(J.rows.map(r => [r.id, normalize('scv5', r, ctx(0.1))]));
+for (const x of Object.values(N)) assert.ok(x.t, JSON.stringify(x));
+const pepe = N['PEPE-A'].t;
+assert.equal(pepe.state, 'CLOSED'); assert.equal(pepe.outcome, 'SL'); assert.equal(pepe.sym, 'PEPEUSDT'); assert.equal(pepe.ai, 'TAKE'); assert.equal(pepe.epoch.slice(0, 8), '7da00c76');
+ok(pepe.stopPct, 2.9833, 'scv5 stop%'); ok(pepe.rGross, -1, 'scv5 SL gross'); ok(pepe.rNative, -1.0335, 'scv5 SL net (jurnal)'); ok(pepe.rStd, -1 - 0.2 / 2.9833, 'scv5 SL std');
+assert.equal(N['ETH-B'].t.outcome, 'TP'); ok(N['ETH-B'].t.rGross, 2.1488, 'scv5 TP2'); assert.equal(N['ETH-B'].t.ai, 'SKIP');
+assert.equal(N['SOL-C'].t.outcome, 'PARTIAL'); ok(N['SOL-C'].t.rGross, 0.9, 'scv5 BE');
+assert.equal(N['BTC-D'].t.outcome, 'TIME'); assert.equal(N['BTC-D'].t.side, 'SHORT');
+assert.equal(N['INJ-E'].t.state, 'NOFILL'); assert.equal(N['LTC-F'].t.state, 'NOFILL', 'TARGET_FIRST = tidak terisi');
+assert.equal(N['HBAR-G'].t.state, 'ACTIVE'); assert.equal(N['HBAR-G'].t.rStd, null); assert.equal(N['HBAR-G'].t.ai, 'N/A', 'tanpa review AI = N/A (pembanding "aturan saja")');
+assert.equal(N['TRB-H'].t.state, 'CANCEL'); assert.equal(N['TRB-H'].t.outcome, 'DATA_GAP', 'celah data bukan trade');
+for (const [st, rs, state] of [['PENDING', null, 'ACTIVE'], ['OPEN', null, 'ACTIVE'], ['OPEN_TP1', null, 'ACTIVE'], ['EXPIRED', 'NOT_FILLED', 'NOFILL'], ['EXPIRED', 'DATA_GAP', 'CANCEL'], ['CLOSED', 'DATA_GAP', 'CANCEL']])
+  assert.equal(normalize('scv5', { symbol: 'X', direction: 'long', entry: 10, stop: 9.9, created_ts: 1, status: st, reason: rs }, ctx(0.1)).t.state, state, st + '/' + rs);
+assert.ok(normalize('scv5', { symbol: 'X', direction: 'long', entry: 10, stop: 9.9, created_ts: 1, status: 'CLOSED', reason: 'ANEH' }, ctx(0.1)).err);
+assert.ok(normalize('scv5', { symbol: 'X', direction: 'long', entry: 10, stop: 9.9, created_ts: 1, status: 'EXPIRED', reason: 'ANEH' }, ctx(0.1)).err);
+assert.ok(normalize('scv5', { symbol: 'X', direction: 'long', entry: 10, stop: 9.9, created_ts: 1, status: 'CLOSED', reason: 'SL' }, ctx(0.1)).err, 'selesai tanpa R ditolak');
+// statistik dari fixture: 4 trade selesai (SL, TP2, BE, TIMEOUT), 3 tidak dihitung (2 tidak terisi + 1 celah data)
+const sv5 = summarize(Object.values(N).map(x => x.t));
+assert.equal(sv5.n, 4); ok(sv5.fillRate, 4 / 7 * 100, 'scv5 fill rate'); assert.equal(sv5.win, 3);
+// epoch: hash dari state.json menang; tanpa state pakai sinyal terbaru; epoch baru tanpa sinyal = nol trade
+const ep = [{ tSig: 1, epoch: 'old' }, { tSig: 3, epoch: 'new' }, { tSig: 2, epoch: 'old' }];
+assert.equal(pickEpoch(ep, 'abc'), 'abc'); assert.equal(pickEpoch(ep, null), 'new'); assert.equal(pickEpoch([], null), null); assert.equal(pickEpoch([{ tSig: 1 }], undefined), null);
+assert.equal(ep.filter(t => t.epoch === pickEpoch(ep, 'belum-ada-sinyal')).length, 0);
 console.log('selftest OK');
