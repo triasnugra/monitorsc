@@ -1,3 +1,3 @@
 [
-{"e":"scv3","id":"XRPUSDT-level_sweep-short-202611180115","sym":"XRPUSDT","side":"SHORT","setup":"level_sweep","grade":null,"score":81,"entry":0.9749,"sl":0.98250596010162,"tp":0.96729403989838,"tp2":0.9456,"stopPct":0.7802,"tSig":1794965400000,"tOut":null,"state":"ACTIVE","outcome":null,"rGross":null,"rNative":null,"rStd":null}
+{"e":"scv3","id":"XRPUSDT-level_sweep-short-202611180115","sym":"XRPUSDT","side":"SHORT","setup":"level_sweep","grade":null,"score":81,"entry":0.9749,"sl":0.98250596010162,"tp":0.96729403989838,"tp2":0.9456,"stopPct":0.7802,"tSig":1794965400000,"tOut":1794978900000,"state":"CLOSED","outcome":"SL","rGross":-1,"rNative":-1.2051,"rStd":-1.2564}
 ]
