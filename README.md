@@ -1,6 +1,6 @@
 # monitorsc
 
-Monitor untuk mengevaluasi dan memantau 6 mesin analisis scalping crypto: **sc**, **scalp**, **scv2**, **scv3**, **scv4**, **scv5**. Semuanya dinilai dengan satu standar. Hanya membaca jurnal mesin (tidak mengubah repo mesin, tidak ada eksekusi order).
+Monitor untuk mengevaluasi dan memantau 7 mesin analisis scalping crypto: **sc**, **scalp**, **scv2**, **scv3**, **scv4**, **scv5**, **scv6**. Semuanya dinilai dengan satu standar. Hanya membaca jurnal mesin (tidak mengubah repo mesin, tidak ada eksekusi order).
 
 ## Pasang (lewat browser)
 1. Upload seluruh isi folder ini ke repo `triasnugra/monitorsc` (pastikan folder `.github/workflows/` ikut).
@@ -11,7 +11,7 @@ Monitor untuk mengevaluasi dan memantau 6 mesin analisis scalping crypto: **sc**
 Jika repo mesin ada yang privat: buat Personal Access Token (read-only Contents) dan simpan sebagai secret `SOURCE_TOKEN`.
 
 ## Yang dipantau
-- Perbandingan 6 mesin: win rate, R/trade (+CI95), total R, PF, max drawdown, SQN, fill rate, loss beruntun, durasi.
+- Perbandingan 7 mesin: win rate, R/trade (+CI95), total R, PF, max drawdown, SQN, fill rate, loss beruntun, durasi.
 - Kurva ekuitas (kumulatif R), per sisi dan per setup, sinyal aktif, riwayat sinyal (filter mesin/status).
 - Gerbang validasi sebelum uang sungguhan: ≥200 trade, ≥56 hari, batas bawah CI95 > 0, PF ≥ 1,2, SQN ≥ 2 (ubah di `config.json`).
 - Kesehatan mesin: umur scan terakhir, ID ganda, baris tidak valid, ringkasan laporan, backtest.
@@ -31,6 +31,12 @@ SCv5 menulis `data/journal.jsonl`: rantai event (SIGNAL, FILL, TP1, CLOSE, EXPIR
 - R terstandar memakai `r_gross` dari jurnal dikurangi biaya seragam. Jika profil SCv5 memakai `stop_slip_pct` > 0, slippage sudah ada di `r_gross` sehingga R terstandar sedikit lebih pesimis.
 
 Syarat SCv5: repo `triasnugra/scv5` publik (atau pakai secret `SOURCE_TOKEN`), dan GitHub Pages SCv5 aktif agar `state.json` (kesehatan + hash epoch) terbaca. Tanpa Pages, status tampil “Tidak diketahui” tetapi statistik tetap dihitung. Backtest SCv5 (workflow manual) hanya menghasilkan artifact, jadi tidak tampil di monitor.
+
+## SCv6 (jurnal activeSignals/closedSignals)
+SCv6 menulis `data/journal.json` berisi `activeSignals` dan `closedSignals` (maks. 100 terakhir) serta `data/signals.json` (laporan scan). Monitor menggabungkan keduanya (`journalFormat: "scv6-journal"`) dan mengarsipkan semua baris agar yang terpotong di repo mesin tidak hilang.
+- Status: `STOPPED_OUT` = SL, `TP2_FULL_WIN` = TP, `TP1_BE_PROTECTED` = TP1+BE, `TP1_EXPIRED_PROFIT` = waktu habis setelah TP1, `EXPIRED_NO_FILL` = tidak terisi.
+- Keterbatasan mesin (bukan monitor): tidak ada cek order terisi, R memakai konstanta (SL −1R, TP1+BE +0,9R), tanpa biaya. Karena itu R terstandar monitor (dikurangi `unifiedCostPct`) jauh lebih pesimis, terutama untuk SL sempit, dan itulah angka yang layak dipercaya. `costPct` SCv6 diset 0 karena mesin tidak memotong biaya.
+- Jurnal tidak berantai-hash dan tidak punya epoch strategi, sehingga tidak ada verifikasi integritas.
 
 ## Pengaturan (`config.json`)
 - `start`: tanggal mulai forward test per mesin (mis. `"2026-11-14"`); sinyal sebelumnya tidak dihitung. Kosong = semua.
