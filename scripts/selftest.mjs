@@ -101,4 +101,18 @@ assert.equal(sv5.n, 4); ok(sv5.fillRate, 4 / 7 * 100, 'scv5 fill rate'); assert.
 const ep = [{ tSig: 1, epoch: 'old' }, { tSig: 3, epoch: 'new' }, { tSig: 2, epoch: 'old' }];
 assert.equal(pickEpoch(ep, 'abc'), 'abc'); assert.equal(pickEpoch(ep, null), 'new'); assert.equal(pickEpoch([], null), null); assert.equal(pickEpoch([{ tSig: 1 }], undefined), null);
 assert.equal(ep.filter(t => t.epoch === pickEpoch(ep, 'belum-ada-sinyal')).length, 0);
+
+// ---------- scv6: jurnal { activeSignals, closedSignals } ----------
+const s6 = { id: 'SOL-SHORT-1795069397567', createdAt: '2026-11-19T06:23:17.567Z', symbol: 'SOL', pair: 'SOLUSDT', direction: 'SHORT', setupCode: 'DEVIATION_REJECTION_SHORT',
+  entryLow: 74.91, entryHigh: 74.9756, initialStopLoss: 75.1726, stopLoss: 75.1726, tp1: 74.3848, tp2: 71.2832, rr: 13.81, stopDistancePct: 0.35 };
+r = normalize('scv6', { ...s6, status: 'ACTIVE' }, ctx(0));
+assert.equal(r.t.state, 'ACTIVE'); assert.equal(r.t.sym, 'SOLUSDT'); assert.equal(r.t.side, 'SHORT'); assert.equal(r.t.rStd, null); ok(r.t.stopPct, 0.35, 'scv6 stop%');
+r = normalize('scv6', { ...s6, status: 'STOPPED_OUT', closedAt: '2026-11-19T07:00:00.000Z', realizedR: -1 }, ctx(0));
+assert.equal(r.t.outcome, 'SL'); ok(r.t.rGross, -1, 'scv6 SL gross'); ok(r.t.rNative, -1, 'scv6 native'); ok(r.t.rStd, -1 - 0.2 / 0.35, 'scv6 SL std'); assert.ok(r.t.tOut > r.t.tSig);
+for (const [st, state, oc] of [['TP2_FULL_WIN', 'CLOSED', 'TP'], ['TP1_BE_PROTECTED', 'CLOSED', 'PARTIAL'], ['TP1_EXPIRED_PROFIT', 'CLOSED', 'TIME'], ['EXPIRED_NO_FILL', 'NOFILL', null]]) {
+  const x = normalize('scv6', { ...s6, status: st, closedAt: '2026-11-19T07:00:00.000Z', realizedR: 0.9 }, ctx(0)).t;
+  assert.equal(x.state, state, st); if (oc) assert.equal(x.outcome, oc, st);
+}
+assert.ok(normalize('scv6', { ...s6, status: 'ANEH' }, ctx(0)).err);
+assert.ok(normalize('scv6', { ...s6, status: 'STOPPED_OUT', realizedR: null }, ctx(0)).err, 'selesai tanpa R ditolak');
 console.log('selftest OK');

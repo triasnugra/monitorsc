@@ -72,6 +72,15 @@ async function health(e, jr, pre) {                                // tanda kehi
         if (r.integrity && r.integrity.ok === false) h.notes.push('Integritas menurut mesin GAGAL: ' + r.integrity.message);
         if ((r.errors || []).length) h.notes.push(`Error data: ${r.errors.length}`);
       } else if (pre?.error) h.notes.push('Gagal baca laporan: ' + pre.error);
+    } else if (e.kind === 'scv6') {
+      const r = JSON.parse(await src(e, e.report) || 'null');
+      if (r) {
+        h.lastScanAt = Date.parse(r.lastUpdatedUtc) || null;
+        const m = r.marketRegime, sm = r.summary;
+        if (m) h.notes.push(`Rezim BTC ${m.regime} ($${m.btcPrice}, posisi range ${Math.round((m.btcRelativePos ?? 0) * 100)}%); bias ${m.altcoinBias}`);
+        if (sm) h.notes.push(`Dipindai ${sm.scannedCount} aset, trigger disetujui ${sm.approvedTriggersCount}, ditunggu/ditolak ${sm.waitOrRejectedCount}`);
+        const ai = (r.assets || []).filter(a => a.aiReview).length; h.notes.push(`Review AI Gemini: ${ai ? ai + ' aset' : 'tidak aktif (aturan kuantitatif saja)'}`);
+      }
     } else if (e.kind === 'scv3') {
       const r = JSON.parse(await src(e, e.report) || 'null');
       if (r) { h.lastScanAt = Date.parse(r.updated) || null; h.notes = [`Mode ${r.mode}; candle ${r.ltf}/${r.htf}; skor minimum ${r.min_score}`]; }
@@ -107,6 +116,10 @@ for (const e of cfg.engines) {
     if (e.journalFormat === 'jsonl-chain') {                   // scv5: rantai event berhash; diverifikasi ulang + replay
       if (txt == null) throw new Error('jurnal tidak ditemukan / bukan array');
       const c = loadChain(txt); raw = c.rows; jr.chain = c.chain;
+    } else if (e.journalFormat === 'scv6-journal') {            // scv6: { activeSignals: [...], closedSignals: [...] } digabung jadi satu daftar
+      const doc = JSON.parse(txt ?? 'null');
+      if (!doc || !Array.isArray(doc.activeSignals) || !Array.isArray(doc.closedSignals)) throw new Error('jurnal tidak ditemukan / bukan array');
+      raw = [...doc.activeSignals.map(s => ({ ...s, status: 'ACTIVE' })), ...doc.closedSignals];
     } else { const doc = JSON.parse(txt ?? 'null'); raw = e.journalKey ? doc?.[e.journalKey] : doc; jr.mode = doc?.mode ?? null; }
     if (!Array.isArray(raw)) throw new Error('jurnal tidak ditemukan / bukan array');
     jr.rows = raw.length;

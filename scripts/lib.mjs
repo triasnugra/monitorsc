@@ -78,6 +78,16 @@ export function normalize(kind, row, ctx) {
       tSig: num(row.created_ts), tOut: num(row.close_ts), state: m[0], outcome: m[1], stopPct: sp, rGross: num(row.r_gross), rNative: num(row.r_net),
       epoch: row.strategy_hash || null, ai: row.ai?.verdict || null }, ctx);
   }
+  if (kind === 'scv6') {   // row = baris jurnal scv6 (activeSignals + closedSignals digabung; aktif diberi status 'ACTIVE' oleh build.mjs)
+    const st = String(row.status ?? '').toUpperCase();
+    const m = { ACTIVE: ['ACTIVE'], STOPPED_OUT: ['CLOSED', 'SL'], TP2_FULL_WIN: ['CLOSED', 'TP'], TP1_BE_PROTECTED: ['CLOSED', 'PARTIAL'], TP1_EXPIRED_PROFIT: ['CLOSED', 'TIME'], EXPIRED_NO_FILL: ['NOFILL'] }[st];
+    if (!m) return { err: 'status tidak dikenal: ' + row.status };
+    const lo = num(row.entryLow), hi = num(row.entryHigh), entry = lo != null && hi != null ? (lo + hi) / 2 : (lo ?? hi), sl = num(row.initialStopLoss ?? row.stopLoss);
+    const sp = num(row.stopDistancePct) ?? (entry > 0 && sl != null ? Math.abs(entry - sl) / entry * 100 : null);   // jarak SL resmi mesin (dipakai gerbang & sizing)
+    // realizedR scv6 = konstanta (-1 / 0,9) atau campuran TP2; scv6 tidak memotong biaya, jadi R asli = R kotor
+    return finish('scv6', { id: row.id, sym: usdt(row.pair || row.symbol), side: row.direction, setup: row.setupCode, entry, sl, tp: num(row.tp1), tp2: num(row.tp2),
+      tSig: tms(row.createdAt), tOut: tms(row.closedAt), state: m[0], outcome: m[1] ?? null, stopPct: sp, rGross: num(row.realizedR), rNative: num(row.realizedR) }, ctx);
+  }
   return { err: 'jenis mesin tidak dikenal: ' + kind };
 }
 
